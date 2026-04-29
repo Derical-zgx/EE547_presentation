@@ -311,6 +311,83 @@
 .outcomes-list .pill { margin-right: 8px; min-width: 62px; }
 .deliverables code { color: var(--red); }
 
+/* ---------- ML pipeline 4-step cards (Slide 25) ---------- */
+.ml-pipeline { gap: 16px; }
+.ml-step {
+  padding: 14px 16px 12px;
+  border-top: 4px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.ml-step.s1 { border-top-color: var(--cyan); }
+.ml-step.s2 { border-top-color: var(--yellow); }
+.ml-step.s3 { border-top-color: var(--orange); }
+.ml-step.s4 {
+  border-top-color: var(--red);
+  border-color: rgba(255,70,85,.45);
+  box-shadow: 0 0 22px rgba(255,70,85,.18), 0 10px 20px rgba(0,0,0,.28);
+}
+.ml-step .step-no {
+  font-size: .5em;
+  font-weight: 900;
+  letter-spacing: .14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 4px;
+}
+.ml-step.s4 .step-no { color: var(--red2); }
+.ml-step h4 {
+  font-size: .76em;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: -.005em;
+  margin: 0 0 10px;
+  line-height: 1.15;
+}
+.ml-step ul {
+  font-size: .5em;
+  line-height: 1.32;
+  margin: 0 0 10px;
+  padding-left: 1.05em;
+  flex: 1;
+}
+.ml-step ul li { margin: .22em 0; }
+.ml-step .pill {
+  font-size: .4em;
+  padding: 4px 10px;
+  align-self: flex-start;
+}
+
+/* Bottom strip: combines persisted-tables + archetype-pill row in one card */
+.ml-bottom {
+  margin-top: 18px;
+  padding: 12px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  font-size: .58em;
+}
+.ml-bottom .label {
+  font-size: .9em;
+  font-weight: 900;
+  letter-spacing: .14em;
+  color: var(--muted);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ml-bottom .pill {
+  font-size: .76em;
+  padding: 4px 10px;
+}
+.ml-bottom .sep {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
 /* ---------- Slide 14/15: one full-width frontend screenshot per slide ---------- */
 
 .reveal .pill.purple {

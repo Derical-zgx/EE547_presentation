@@ -308,7 +308,89 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">18 / Backend</span><h2>Outside Data Source / API - VLR.gg via vlrdevapi</h2></div>
+  <div class="slide-title"><span class="kicker">18 / Backend</span><h2>Request Lifecycle &mdash; Sync &amp; Async Paths</h2></div>
+  <div class="rule"></div>
+  <p class="muted" style="margin-top:-14px;font-size:.78em;">
+    What happens when an admin clicks <em>Sync recent matches</em> &mdash; the HTTP request returns in
+    <strong>~50&nbsp;ms</strong>; the worker does the slow work in the background.
+  </p>
+
+  <div class="diagram-stage" style="height:540px;margin-top:14px;">
+    <svg viewBox="0 0 1156 540" preserveAspectRatio="none">
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,10 L10,5 z" fill="#8a96aa" style="stroke:none"/>
+        </marker>
+      </defs>
+
+      <rect x="0" y="100" width="1156" height="170" fill="rgba(255,70,85,0.07)"/>
+      <rect x="0" y="285" width="1156" height="225" fill="rgba(76,139,255,0.06)"/>
+
+      <line x1="90"   y1="86" x2="90"   y2="510" style="stroke:#3a4458;stroke-width:2;stroke-dasharray:6 6;marker-end:none"/>
+      <line x1="334"  y1="86" x2="334"  y2="510" style="stroke:#3a4458;stroke-width:2;stroke-dasharray:6 6;marker-end:none"/>
+      <line x1="578"  y1="86" x2="578"  y2="510" style="stroke:#3a4458;stroke-width:2;stroke-dasharray:6 6;marker-end:none"/>
+      <line x1="822"  y1="86" x2="822"  y2="510" style="stroke:#3a4458;stroke-width:2;stroke-dasharray:6 6;marker-end:none"/>
+      <line x1="1066" y1="86" x2="1066" y2="510" style="stroke:#3a4458;stroke-width:2;stroke-dasharray:6 6;marker-end:none"/>
+
+      <text x="20" y="120" style="font-size:12px;font-weight:900;letter-spacing:2.8px;fill:#ff8a93">SYNC PATH</text>
+
+      <line x1="92" y1="142" x2="332" y2="142" style="stroke:#ff8a93;stroke-width:3"/>
+      <text x="212" y="135" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#ffd6d9">&#9312; POST /api/admin/sync (JWT)</text>
+
+      <rect x="328" y="170" width="12" height="20" fill="#ff4655"/>
+      <text x="346" y="184" style="font-size:14px;font-weight:800;fill:#ffd6d9">&#9313; JWT decode &middot; check role==admin</text>
+
+      <line x1="336" y1="215" x2="576" y2="215" style="stroke:#ff8a93;stroke-width:3"/>
+      <text x="456" y="208" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#ffd6d9">&#9314; send_message(type=sync_recent_matches)</text>
+
+      <line x1="332" y1="252" x2="92" y2="252" style="stroke:#ff8a93;stroke-width:3"/>
+      <text x="212" y="245" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#ffd6d9">&#9315; HTTP 202 Accepted + messageId</text>
+
+      <line x1="0" y1="278" x2="1156" y2="278" style="stroke:#ff4655;stroke-width:2;stroke-dasharray:9 6;opacity:0.55;marker-end:none"/>
+      <text x="1146" y="274" text-anchor="end" style="font-size:12px;font-weight:900;letter-spacing:2px;fill:#ff8a93">&mdash; USER-PERCEIVED LATENCY &asymp; 50 ms &mdash;</text>
+
+      <text x="20" y="304" style="font-size:12px;font-weight:900;letter-spacing:2.8px;fill:#9ebcff">ASYNC PATH (background, ~30&ndash;60 s for 20 matches)</text>
+
+      <line x1="580" y1="332" x2="820" y2="332" style="stroke:#9ebcff;stroke-width:3"/>
+      <text x="700" y="325" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#cfe0ff">&#9316; long-poll &rarr; deliver message</text>
+
+      <rect x="816" y="358" width="12" height="22" fill="#4c8bff"/>
+      <text x="834" y="372" style="font-size:14px;font-weight:800;fill:#cfe0ff">&#9317; fetch VLR via vlrdevapi (sleep 1.5s &middot; retry/backoff)</text>
+
+      <line x1="824" y1="408" x2="1064" y2="408" style="stroke:#9ebcff;stroke-width:3"/>
+      <text x="944" y="401" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#cfe0ff">&#9318; ON CONFLICT upsert (idempotent)</text>
+
+      <line x1="820" y1="448" x2="580" y2="448" style="stroke:#9ebcff;stroke-width:3"/>
+      <text x="700" y="441" text-anchor="middle" style="font-size:14px;font-weight:800;fill:#cfe0ff">&#9319; delete message (commit)</text>
+
+      <text x="578" y="495" text-anchor="middle" style="font-size:12px;font-style:italic;fill:#9ca7ba">if &#9317; or &#9318; fails &mdash; message is NOT deleted &mdash; SQS auto-redelivers after 300s visibility timeout</text>
+    </svg>
+
+    <div class="diagram-node blue"   style="left:0;     top:18px; width:180px; height:64px;">
+      <strong>Browser SPA</strong><span>role=admin</span>
+    </div>
+    <div class="diagram-node red"    style="left:244px; top:18px; width:180px; height:64px;">
+      <strong>Flask API</strong><span>api/app.py</span>
+    </div>
+    <div class="diagram-node purple" style="left:488px; top:18px; width:180px; height:64px;">
+      <strong>AWS SQS</strong><span>queue (long-poll)</span>
+    </div>
+    <div class="diagram-node yellow" style="left:732px; top:18px; width:180px; height:64px;">
+      <strong>Worker</strong><span>worker.py + vlrdevapi</span>
+    </div>
+    <div class="diagram-node green"  style="left:976px; top:18px; width:180px; height:64px;">
+      <strong>PostgreSQL RDS</strong><span>10 tables</span>
+    </div>
+  </div>
+
+  <p class="xsmall muted" style="text-align:center;margin-top:6px;">
+    Same SPA used by viewers and admins &mdash; the admin bar is rendered only when the JWT role is <code>admin</code>.
+    Server-side <code>@token_required</code> + role check is the real authorization gate.
+  </p>
+</section>
+
+<section>
+  <div class="slide-title"><span class="kicker">19 / Backend</span><h2>Outside Data Source / API - VLR.gg via vlrdevapi</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li><strong>Source:</strong> VLR.gg public Valorant match pages and vlrdevapi Python library.</li>
@@ -321,7 +403,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">19 / Backend</span><h2>Performance and Scalability</h2></div>
+  <div class="slide-title"><span class="kicker">20 / Backend</span><h2>Performance and Scalability</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li>Slow operations are asynchronous, so scraping and K-means do not block HTTP requests.</li>
@@ -334,7 +416,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">20 / Backend</span><h2>DevOps / System Operations</h2></div>
+  <div class="slide-title"><span class="kicker">21 / Backend</span><h2>DevOps / System Operations</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li><strong>CI/CD:</strong> not implemented yet; repo is organized for future GitHub Actions.</li>
@@ -349,7 +431,7 @@
 <section class="divider"><div class="section-no">Section - 03</div><h1>Machine Learning</h1><p>Unsupervised player-style classification with K-means.</p></section>
 
 <section>
-  <div class="slide-title"><span class="kicker">22 / ML</span><h2>ML Overview</h2></div>
+  <div class="slide-title"><span class="kicker">23 / ML</span><h2>ML Overview</h2></div>
   <div class="rule"></div>
   <div class="grid-2 right-card">
     <ul class="big-list small">
@@ -364,32 +446,100 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">23 / ML</span><h2>ML Integration</h2></div>
+  <div class="slide-title"><span class="kicker">24 / ML</span><h2>ML Integration</h2></div>
   <div class="rule"></div>
-  <div class="flow-row" style="margin-top:30px"><div class="flow-node">Admin clicks<br>Train K-means</div><div class="arrow-text">→</div><div class="flow-node">Flask API sends<br>{type: train_kmeans}</div><div class="arrow-text">→</div><div class="flow-node">SQS queue</div><div class="arrow-text">→</div><div class="flow-node">worker/ml_pipeline.py</div></div>
-  <ul class="big-list small" style="margin-top:44px">
-    <li>Worker loads features from PostgreSQL using aggregate SQL.</li>
-    <li>Pipeline inserts player_features snapshots and ml_clusters rows.</li>
-    <li>Pipeline updates players.ml_cluster_id, players.ml_archetype, and players.ml_scored_at.</li>
-    <li>Async design keeps slow ML work outside request handlers and keeps UI responsive.</li>
-  </ul>
-</section>
-
-<section>
-  <div class="slide-title"><span class="kicker">24 / ML</span><h2>ML Data and Training</h2></div>
-  <div class="rule"></div>
-  <div class="grid-3">
-    <div class="card"><h3>Training data source</h3><p>Recent per-map player stats scraped from VLR.gg.</p></div>
-    <div class="card"><h3>Feature families</h3><p>Combat, survivability, entry impact, role, and agent flexibility.</p></div>
-    <div class="card"><h3>Training filter</h3><p>Players need at least min_matches maps for stable clusters.</p></div>
-    <div class="card"><h3>Preprocessing</h3><p>Missing values filled with means; features standardized before K-means.</p></div>
-    <div class="card"><h3>Model storage</h3><p>Centroids and labels stored in ml_clusters JSONB; no model file needed.</p></div>
-    <div class="card hot"><h3>Current limitation</h3><p>Cluster quality depends on the amount of scraped history in RDS.</p></div>
+  <p class="muted" style="margin-top:-10px;font-size:.78em;margin-bottom:24px;">
+    Same async pattern as the data sync (Slide&nbsp;18) &mdash; admin click triggers an SQS job; the pipeline runs in the worker.
+  </p>
+  <div class="grid-2 right-card">
+    <div class="card">
+      <h3>Trigger flow</h3>
+      <ul class="big-list small">
+        <li><strong>Admin</strong> clicks <em>Train K-means</em> in the SPA.</li>
+        <li><strong>API</strong> &mdash; <code>POST /api/admin/train</code> &rarr; SQS message <code>{type: train_kmeans, k, min_matches}</code> &rarr; HTTP 202.</li>
+        <li><strong>Worker</strong> dispatches to <code>worker/ml_pipeline.py::train_and_persist()</code>.</li>
+        <li><strong>No external scraping</strong> &mdash; the pipeline reads only what is already in RDS.</li>
+      </ul>
+    </div>
+    <div class="card hot">
+      <h3>Writes back to RDS</h3>
+      <ul class="small">
+        <li><code>player_features</code> &mdash; one snapshot row per player per run</li>
+        <li><code>ml_clusters</code> &mdash; centroid (JSONB), size, silhouette, <code>run_id</code></li>
+        <li><code>players.ml_cluster_id</code> + <code>ml_archetype</code> + <code>ml_scored_at</code></li>
+      </ul>
+      <p class="xsmall" style="margin-top:14px;color:var(--muted);">
+        <strong>Trained model = data</strong>: no <code>.pkl</code> file. Centroids live in <code>ml_clusters.centroid</code> JSONB; each run gets a new <code>run_id</code>, so history is preserved.
+      </p>
+    </div>
   </div>
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">25 / ML</span><h2>ML Performance</h2></div>
+  <div class="slide-title"><span class="kicker">25 / ML</span><h2>ML Pipeline &mdash; 4 Steps from Stats to Archetype</h2></div>
+  <div class="rule"></div>
+
+  <div class="grid-4 ml-pipeline">
+    <div class="card ml-step s1">
+      <span class="step-no">Step &#9312;</span>
+      <h4>SQL Aggregate</h4>
+      <ul>
+        <li><code>player_map_stats</code> &rarr; <strong>17 features</strong> per player</li>
+        <li>Combat, KAST, FK rate, agent_flex, 4 role pcts</li>
+        <li><code>HAVING n_maps &gt;= :min_matches</code> filter</li>
+      </ul>
+      <span class="pill blue">single CTE in PostgreSQL</span>
+    </div>
+
+    <div class="card ml-step s2">
+      <span class="step-no">Step &#9313;</span>
+      <h4>Preprocess</h4>
+      <ul>
+        <li>Fill <code>NaN</code> with column mean</li>
+        <li>z-score standardize using <code>StandardScaler</code></li>
+        <li>Avoids ACS (~200) dominating KAST (0&ndash;1)</li>
+      </ul>
+      <span class="pill yellow">numpy / sklearn</span>
+    </div>
+
+    <div class="card ml-step s3">
+      <span class="step-no">Step &#9314;</span>
+      <h4>K-means Clustering</h4>
+      <ul>
+        <li><code>KMeans(n_clusters=k, n_init=10)</code></li>
+        <li>Default <code>k = 4</code>, parameterized per request</li>
+        <li>Pure-numpy fallback if sklearn missing</li>
+      </ul>
+      <span class="pill orange">silhouette_score (eval)</span>
+    </div>
+
+    <div class="card ml-step s4">
+      <span class="step-no">Step &#9315;</span>
+      <h4>Centroid Template Scoring</h4>
+      <ul>
+        <li><strong>5 archetype templates</strong> &mdash; weight vectors</li>
+        <li><code>score = template &middot; centroid_norm</code></li>
+        <li>Greedy &rarr; <strong>unique</strong> labels</li>
+      </ul>
+      <span class="pill red">interpretable, no black box</span>
+    </div>
+  </div>
+
+  <div class="card ml-bottom">
+    <span class="label">Persisted</span>
+    <span><code>player_features</code> &middot; <code>ml_clusters</code> &middot; <code>players.ml_archetype</code></span>
+    <span class="sep"></span>
+    <span class="label">Labels</span>
+    <span class="pill red">Entry Fragger</span>
+    <span class="pill red">Lurker / AWPer</span>
+    <span class="pill red">Support Initiator</span>
+    <span class="pill red">Anchor IGL</span>
+    <span class="pill red">Flex Star</span>
+  </div>
+</section>
+
+<section>
+  <div class="slide-title"><span class="kicker">26 / ML</span><h2>ML Performance</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li><strong>Metrics implemented:</strong> silhouette_score when sklearn and enough samples are available.</li>
@@ -404,7 +554,7 @@
 <section class="divider"><div class="section-no">Section - 04</div><h1>API</h1><p>JWT-protected REST API over PostgreSQL and SQS.</p></section>
 
 <section>
-  <div class="slide-title"><span class="kicker">27 / API</span><h2>API Summary</h2></div>
+  <div class="slide-title"><span class="kicker">28 / API</span><h2>API Summary</h2></div>
   <div class="rule"></div>
   <div class="grid-3">
     <div class="card"><h3>Type</h3><p>REST API returning JSON.</p></div>
@@ -417,7 +567,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">28 / API</span><h2>API Security and Access</h2></div>
+  <div class="slide-title"><span class="kicker">29 / API</span><h2>API Security and Access</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li><strong>Authentication:</strong> /auth/login validates credentials and returns a signed JWT.</li>
@@ -430,7 +580,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">29 / API</span><h2>API Endpoints</h2></div>
+  <div class="slide-title"><span class="kicker">30 / API</span><h2>API Endpoints</h2></div>
   <div class="rule"></div>
   <div class="api-table">
     <div class="method get">GET</div><div class="path"><strong>/status</strong> - Health check; returns API and DB status.</div>
@@ -449,7 +599,7 @@
 <section class="divider"><div class="section-no">Section - 05</div><h1>In Conclusion...</h1><p>What was built, what works, and what remains.</p></section>
 
 <section>
-  <div class="slide-title"><span class="kicker">31 / Conclusion</span><h2>Anything Else</h2></div>
+  <div class="slide-title"><span class="kicker">32 / Conclusion</span><h2>Anything Else</h2></div>
   <div class="rule"></div>
   <div class="grid-2">
     <div class="card"><h3>Unique detail</h3><p>Database stores normalized rows and raw JSONB for audit/debug.</p></div>
@@ -461,7 +611,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">32 / Results</span><h2>Outcomes and Results</h2></div>
+  <div class="slide-title"><span class="kicker">33 / Results</span><h2>Outcomes and Results</h2></div>
   <div class="rule"></div>
   <div class="grid-2 right-card">
     <ul class="big-list small outcomes-list">
@@ -477,7 +627,7 @@
 </section>
 
 <section>
-  <div class="slide-title"><span class="kicker">33 / Conclusion</span><h2>Incomplete and Descoped Features</h2></div>
+  <div class="slide-title"><span class="kicker">34 / Conclusion</span><h2>Incomplete and Descoped Features</h2></div>
   <div class="rule"></div>
   <ul class="big-list">
     <li><strong>CS2 / multi-game support:</strong> descoped to focus on a reliable Valorant pipeline first.</li>
