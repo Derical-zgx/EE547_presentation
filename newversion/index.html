@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>FPS-MetaSync — Esport Analyse System</title>
+
+  <!-- reveal.js core -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/black.css" id="theme" />
+  <!-- code highlight -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/highlight/monokai.css" />
+  <!-- custom theme (load AFTER reveal/black so we can override) -->
+  <link rel="stylesheet" href="css/valorant.css" />
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+
+    <!-- ============================================================
+         Slide 1 — Title
+         ============================================================ -->
+    <section class="title" data-background-color="#0a0d12">
+      <div class="eyebrow">EE 547 · Final Project · Spring 2026</div>
+      <h1>Esport <span class="red">Analyse</span> System</h1>
+      <p class="tagline">
+        Cloud-native esports analytics platform with match / player data and
+        K-means player archetypes.
+      </p>
+      <div class="stack">
+        <span class="pill red">AWS RDS</span>
+        <span class="pill red">AWS SQS</span>
+        <span class="pill red">Flask API</span>
+        <span class="pill red">K-means ML</span>
+        <span class="pill">Vanilla JS SPA</span>
+        <span class="pill">Docker</span>
+      </div>
+      <div class="meta">
+        <span class="author">Xianyang Chen, Guoxing Zhang, Wenxiao Wang</span>
+        <span>·</span>
+        <span>Reference Deck</span>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 2 — Project Summary
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">02 / Overview</span>
+        <h2>Project Summary</h2>
+      </div>
+      <div class="grid-2 lop">
+        <div>
+          <ul>
+            <li><strong>Problem.</strong> Esports statistics are scattered across websites and hard to turn into team / player insights.</li>
+            <li><strong>FPS-MetaSync</strong> centralizes Valorant match, map, round, and player statistics into a queryable web system.</li>
+            <li>Admins trigger <em>asynchronous</em> data sync jobs; users browse matches, teams, player cards, and ML archetypes.</li>
+            <li>ML component groups players by play style using <em>K-means</em> over recent performance features.</li>
+            <li><strong>Goal.</strong> Demonstrate a cloud-backed data pipeline plus a usable analytics frontend for an esports domain.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Current status</h4>
+          <ul class="small">
+            <li><span class="pill green">Done</span> Schema, API, worker, scraper, ML, SPA, Docker docs</li>
+            <li><span class="pill green">Done</span> RDS schema and admin account initialized</li>
+            <li><span class="pill yellow">Partial</span> Full data refresh validation &amp; EC2 production run</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 3 — Architecture Summary (text)
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">03 / Architecture</span>
+        <h2>Architecture Summary</h2>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4>Web Tier</h4>
+          <ul class="small">
+            <li><strong>Frontend.</strong> Vanilla JavaScript SPA served by Flask.</li>
+            <li><strong>Backend API.</strong> Flask + SQLAlchemy, JWT auth, REST endpoints for matches / teams / players / clusters.</li>
+            <li><strong>Database.</strong> PostgreSQL on AWS RDS — normalized tables + JSONB raw payloads.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Async Tier</h4>
+          <ul class="small">
+            <li><strong>Queue.</strong> AWS SQS decouples admin requests from slow scraping / ML training jobs.</li>
+            <li><strong>Worker.</strong> Consumes SQS, calls <code>vlrdevapi</code>, upserts data, runs batch K-means.</li>
+            <li><strong>Scope.</strong> Valorant / VLR path implemented; CS2 support and scheduled refresh are planned.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 4 — Architecture Diagram (Mermaid)
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">04 / Architecture</span>
+        <h2>Components &amp; Data Flow</h2>
+      </div>
+      <div class="mermaid">
+flowchart LR
+  subgraph CLIENT["Client"]
+    UI["Frontend SPA<br/><span style='color:#8b94a7;font-size:11px'>HTML / CSS / JS</span>"]
+  end
+  subgraph WEB["Web Tier"]
+    API["Flask REST API<br/><span style='color:#8b94a7;font-size:11px'>api/app.py</span>"]
+    DB[("PostgreSQL RDS<br/><span style='color:#8b94a7;font-size:11px'>normalized schema</span>")]
+  end
+  subgraph ASYNC["Async Tier"]
+    SQS{{"AWS SQS<br/><span style='color:#8b94a7;font-size:11px'>async jobs</span>"}}
+    W["Worker<br/><span style='color:#8b94a7;font-size:11px'>scrape + ML</span>"]
+    ML["K-means<br/><span style='color:#8b94a7;font-size:11px'>archetypes</span>"]
+  end
+  EXT["vlr.gg<br/><span style='color:#8b94a7;font-size:11px'>via vlrdevapi</span>"]
+
+  UI -- "fetch JSON" --> API
+  API -- "read / write" --> DB
+  API -- "enqueue task" --> SQS
+  SQS -- "long poll" --> W
+  W -- "scrape" --> EXT
+  W -- "upsert" --> DB
+  W -- "train" --> ML
+  ML -- "cluster labels" --> DB
+      </div>
+      <p class="xsmall muted" style="margin-top:18px;text-align:center;">
+        <strong>Control flow:</strong> UI / admin → API → SQS → Worker.&nbsp;&nbsp;
+        <strong>Data flow:</strong> VLR → Worker → RDS → API → UI.
+      </p>
+    </section>
+
+    <!-- ============================================================
+         Slide 5 — Background
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">05 / Context</span>
+        <h2>Background</h2>
+      </div>
+      <ul>
+        <li>Valorant esports matches contain <em>series-level</em>, <em>map-level</em>, <em>round-level</em>, and per-player statistics.</li>
+        <li>Useful play-style signals: ACS, rating, K/D/A, ADR, KAST, first kills / deaths, role, agent pool.</li>
+        <li>Public sites such as <strong>VLR.gg</strong> expose rich pages, but they are not designed for programmatic analytics dashboards.</li>
+        <li>Batch ingestion is appropriate — scraping can be slow, rate-limited, and should not block web requests.</li>
+        <li>Unsupervised clustering is useful when no official label exists for play-style categories.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 6 — Deployment
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">06 / Deployment</span>
+        <h2>Deployment</h2>
+      </div>
+      <div class="grid-2 lop">
+        <div>
+          <ul class="small">
+            <li><strong>Cloud:</strong> AWS — RDS PostgreSQL, SQS queue, EC2 target host.</li>
+            <li><strong>Local dev:</strong> Python venvs, Flask dev server, worker process, <code>psql</code> against RDS.</li>
+            <li><strong>Containers:</strong> <code>Dockerfile.api</code> (Py 3.11 + gunicorn) &amp; <code>Dockerfile.worker</code> (Py 3.13).</li>
+            <li><code>docker/docker-compose.yml</code> runs API + worker with env vars from <code>.env</code>.</li>
+            <li><span class="pill green">Done</span> RDS schema bootstrapped, admin user seeded, API/worker tested locally.</li>
+            <li><span class="pill yellow">Next</span> Run containers on EC2, attach IAM role, optional Nginx reverse proxy / TLS.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Deploy command</h4>
+<pre><code class="language-bash" data-trim>
+docker compose \
+  -f docker/docker-compose.yml \
+  --env-file .env up -d
+</code></pre>
+          <p class="xsmall muted">
+            <strong>API:</strong> http://&lt;ec2-ip&gt;:5000<br/>
+            <strong>Worker:</strong> long-poll SQS
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 7 — Timeline (Mermaid)
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">07 / Process</span>
+        <h2>Timeline — Retrospective</h2>
+      </div>
+      <div class="mermaid">
+flowchart LR
+  P1["<b>Phase 1</b><br/>Proposal + AWS setup<br/><span style='color:#8b94a7;font-size:11px'>RDS / SQS / EC2 created<br/>scope defined</span>"]
+  P2["<b>Phase 2</b><br/>Data discovery<br/><span style='color:#8b94a7;font-size:11px'>vlrggapi evaluated<br/>vlrdevapi selected · Py 3.13</span>"]
+  P3["<b>Phase 3</b><br/>Data fetchers<br/><span style='color:#8b94a7;font-size:11px'>match fetcher +<br/>player feature generator</span>"]
+  P4["<b>Phase 4</b><br/>Backend + ML<br/><span style='color:#8b94a7;font-size:11px'>schema · ORM · REST<br/>SQS worker · K-means</span>"]
+  P5["<b>Phase 5</b><br/>Frontend + packaging<br/><span style='color:#8b94a7;font-size:11px'>SPA UI · Dockerfiles<br/>deploy docs · repo org</span>"]
+  P1 --> P2 --> P3 --> P4 --> P5
+      </div>
+      <div class="card" style="margin-top:18px;border-left:4px solid var(--val-red);">
+        <p class="small" style="margin:0;">
+          <strong class="accent">Major pivot:</strong> the originally referenced
+          <code>vlrggapi</code> was not a usable PyPI client; the implementation moved
+          to <code>vlrdevapi</code> and isolated worker dependencies in Python 3.13.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 8 — References
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">08 / References</span>
+        <h2>References</h2>
+      </div>
+      <ul class="small">
+        <li><strong>VLR.gg</strong> public match pages — source of Valorant match / map / player data.</li>
+        <li><code>vlrdevapi</code> Python package — third-party scraper wrapper used by the worker.</li>
+        <li>Flask, Flask-SQLAlchemy, SQLAlchemy 2.x, PyJWT, Werkzeug documentation.</li>
+        <li>AWS documentation — RDS PostgreSQL, SQS, IAM policies, EC2 deployment.</li>
+        <li>scikit-learn documentation — <code>StandardScaler</code>, <code>KMeans</code>, <code>silhouette_score</code>.</li>
+        <li>Docker &amp; Docker Compose documentation for API / worker deployment.</li>
+        <li><code>python-pptx</code> used to generate the original presentation deck.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 9 — Section: Frontend
+         ============================================================ -->
+    <section class="divider">
+      <div class="eyebrow">Section · 01</div>
+      <h1>Frontend</h1>
+      <p class="sub">Single-page esports dashboard served by Flask.</p>
+    </section>
+
+    <!-- ============================================================
+         Slide 10 — Frontend Overview
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">10 / Frontend</span>
+        <h2>Frontend Overview</h2>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4>Stack &amp; Hosting</h4>
+          <ul class="small">
+            <li>Static HTML, CSS, vanilla JavaScript — <em>no build step</em>.</li>
+            <li>Flask serves <code>frontend/static/index.html</code> + assets from the same origin as the API.</li>
+            <li>Hash-based routing: <code>#/matches</code>, <code>#/team/&lt;id&gt;</code>, <code>#/player/&lt;id&gt;</code>, <code>#/clusters</code>.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4>Integration &amp; Views</h4>
+          <ul class="small">
+            <li><code>fetch()</code> → REST endpoints; JWT in <code>localStorage</code> after admin login.</li>
+            <li>Views: recent matches, match detail, teams, team detail, player card, K-means archetypes.</li>
+            <li>Design: dark esports UI, stat tables, role badges, archetype badges, admin action bar.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 11 — User Roles
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">11 / Frontend</span>
+        <h2>User Roles</h2>
+      </div>
+      <div class="grid-3">
+        <div class="card">
+          <span class="pill blue">Public · Viewer</span>
+          <ul class="small" style="margin-top:10px;">
+            <li>Browse match list and match detail pages.</li>
+            <li>Browse teams, rosters, player stat cards, latest cluster labels.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <span class="pill red">Admin</span>
+          <ul class="small" style="margin-top:10px;">
+            <li>Logs in with JWT-protected account.</li>
+            <li>Triggers <em>Sync recent matches</em> → enqueue SQS ingestion job.</li>
+            <li>Triggers <em>Train K-means</em> → enqueue ML batch job.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <span class="pill green">System · Worker</span>
+          <ul class="small" style="margin-top:10px;">
+            <li>Consumes queue messages.</li>
+            <li>Calls external data source, persists records.</li>
+            <li>Trains the model.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 12 — User Flow Diagram (Mermaid)
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">12 / Frontend</span>
+        <h2>User Flow Diagram</h2>
+      </div>
+      <div class="mermaid">
+flowchart TB
+  Home["Home / Matches"]
+  MD["Match Detail"]
+  TD["Team Detail"]
+  PC["Player Card"]
+  AR["Archetypes"]
+  Home --> MD
+  Home --> TD
+  TD --> PC
+  AR --> PC
+
+  Login["Admin Login"]
+  Sync["Sync Matches"]
+  Train["Train K-means"]
+  Login --> Sync
+  Login --> Train
+
+  classDef admin fill:#2a1518,stroke:#ff4655,color:#ff8a93;
+  class Login,Sync,Train admin;
+      </div>
+      <p class="xsmall muted" style="text-align:center;margin-top:14px;">
+        Viewers browse analytics; admins trigger async refresh / training without blocking the web request.
+      </p>
+    </section>
+
+    <!-- ============================================================
+         Slide 13 — Frontend Views: Matches and Teams
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">13 / Frontend</span>
+        <h2>Views — Matches &amp; Teams</h2>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4 style="color:var(--val-red);">Matches View</h4>
+          <ul class="small">
+            <li>Recent series list</li>
+            <li>Team names + scoreline</li>
+            <li>Event / phase / date</li>
+            <li>Click-through to match detail</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--val-red);">Teams View</h4>
+          <ul class="small">
+            <li>Team cards by name / tag</li>
+            <li>Roster and recent matches</li>
+            <li>Player-card navigation</li>
+            <li>Designed for quick exploration</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 14 — Frontend Views: Player Card and Archetypes
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">14 / Frontend</span>
+        <h2>Views — Player Card &amp; Archetypes</h2>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4 style="color:var(--val-red);">Player Card&nbsp;<span class="pill red">archetype</span></h4>
+          <ul class="small">
+            <li>Career snapshot — maps, rating, ACS, ADR, KAST, K/D</li>
+            <li>Agent pool summary</li>
+            <li>Recent map stat table</li>
+            <li>ML archetype badge</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h4 style="color:var(--val-red);">Archetypes&nbsp;<span class="pill red">archetype</span></h4>
+          <ul class="small">
+            <li>Latest K-means run ID</li>
+            <li>Cluster name and size</li>
+            <li>Centroid feature highlights</li>
+            <li>Example players per cluster</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 15 — Section: Backend
+         ============================================================ -->
+    <section class="divider">
+      <div class="eyebrow">Section · 02</div>
+      <h1>Backend</h1>
+      <p class="sub">REST API, database schema, queue worker, and data ingestion.</p>
+    </section>
+
+    <!-- ============================================================
+         Slide 16 — Backend Summary
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">16 / Backend</span>
+        <h2>Backend Summary</h2>
+      </div>
+      <div class="grid-2 lop">
+        <div>
+          <ul class="small">
+            <li><strong>Stack:</strong> Python · Flask · Flask-SQLAlchemy / SQLAlchemy 2.x · boto3 · psycopg2-binary.</li>
+            <li><strong>Routing:</strong> API endpoints in <code>api/app.py</code>; shared SQLAlchemy models in <code>shared/models.py</code>.</li>
+            <li><strong>Database:</strong> PostgreSQL on AWS RDS — normalized relational tables + raw JSONB payloads.</li>
+            <li><strong>Async:</strong> API → SQS messages; <code>worker/worker.py</code> long-polls and dispatches handlers.</li>
+            <li><strong>Persistence:</strong> <code>worker/data_writer.py</code> uses PostgreSQL <code>ON CONFLICT</code> upserts → idempotent sync.</li>
+            <li><strong>Layout:</strong> <code>api/</code>, <code>worker/</code>, <code>shared/</code>, <code>frontend/</code>, <code>db/</code>, <code>docker/</code>, <code>docs/</code>.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Tables (10)</h4>
+          <ul class="small">
+            <li><code>users</code></li>
+            <li><code>teams</code>, <code>players</code></li>
+            <li><code>matches</code>, <code>maps</code>, <code>rounds</code></li>
+            <li><code>player_map_stats</code></li>
+            <li><code>player_features</code>, <code>ml_clusters</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 17 — Outside Data Source
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">17 / Backend</span>
+        <h2>Outside Data Source — VLR.gg via <code>vlrdevapi</code></h2>
+      </div>
+      <ul class="small">
+        <li><strong>Source.</strong> VLR.gg public Valorant match pages and the third-party <code>vlrdevapi</code> Python library.</li>
+        <li><strong>Access pattern.</strong> Worker pulls completed match IDs, then fetches full series detail per match.</li>
+        <li><strong>Stored data.</strong> Series metadata, two teams, map veto, map scores, round outcomes, 10 player stat lines per map.</li>
+        <li><strong>Filtering.</strong> Sync pulls most recent completed matches with configurable limit / pages.</li>
+        <li><strong>Rate control.</strong> Retry wrapper handles <code>RateLimitError</code>, <code>NetworkError</code>, <code>ScrapingError</code> with sleeps / backoff.</li>
+        <li><strong>Idempotent.</strong> Repeated jobs do not duplicate matches or player-map stats.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 18 — Performance and Scalability
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">18 / Backend</span>
+        <h2>Performance &amp; Scalability</h2>
+      </div>
+      <ul class="small">
+        <li>Slow operations are <em>asynchronous</em> — scraping &amp; K-means do not block HTTP requests.</li>
+        <li>SQS gives backpressure and retry behavior; worker can be scaled horizontally for more throughput.</li>
+        <li>DB indexes on <code>match_date</code>, team IDs, player IDs, cluster IDs, and map / stat foreign keys.</li>
+        <li>Upserts make sync safe to re-run after failures or partial fetches.</li>
+        <li><strong>Known bottleneck.</strong> VLR.gg scraping rate limits — worker intentionally sleeps between fetches.</li>
+        <li><strong>Future scaling.</strong> Scheduled sync, batch size tuning, RDS connection pool tuning, response cache.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 19 — DevOps
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">19 / Backend</span>
+        <h2>DevOps / System Operations</h2>
+      </div>
+      <ul class="small">
+        <li><strong>CI/CD.</strong> Not yet implemented; repository is organized for GitHub Actions later.</li>
+        <li><strong>Artifacts.</strong> <code>Dockerfile.api</code>, <code>Dockerfile.worker</code>, <code>docker-compose.yml</code>, <code>DEPLOY.md</code>.</li>
+        <li><strong>Config.</strong> <code>.env.example</code> — <code>DATABASE_URL</code>, <code>SQS_QUEUE_URL</code>, <code>AWS_REGION</code>, <code>SECRET_KEY</code>, optional AWS keys.</li>
+        <li><strong>Monitoring.</strong> Stdout / stderr from Flask / gunicorn and worker logging.</li>
+        <li><strong>Errors.</strong> Worker catches task exceptions, rolls back DB transactions, leaves failed SQS messages for retry.</li>
+        <li><strong>Lessons.</strong> IAM SQS permissions and RDS security-group / network settings were the key integration risks.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 20 — Section: Machine Learning
+         ============================================================ -->
+    <section class="divider">
+      <div class="eyebrow">Section · 03</div>
+      <h1>Machine Learning</h1>
+      <p class="sub">Unsupervised player-style classification with K-means.</p>
+    </section>
+
+    <!-- ============================================================
+         Slide 21 — ML Overview
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">21 / ML</span>
+        <h2>ML Overview</h2>
+      </div>
+      <div class="grid-2 lop">
+        <div>
+          <ul class="small">
+            <li><strong>Model.</strong> Custom-trained unsupervised K-means clustering, default <code>k = 4</code>.</li>
+            <li><strong>Purpose.</strong> Group players into interpretable play-style archetypes for the frontend.</li>
+            <li><strong>Inputs.</strong> Aggregated player performance features from <code>player_map_stats</code>.</li>
+            <li><strong>Output.</strong> <code>cluster_id</code> and human-readable archetype label stored on players, shown in UI.</li>
+            <li><strong>Framework.</strong> scikit-learn <code>StandardScaler</code> + <code>KMeans</code>; numpy fallback if sklearn unavailable.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Archetype examples</h4>
+          <ul class="small">
+            <li><span class="pill red">Entry Fragger</span></li>
+            <li><span class="pill red">Lurker / AWPer</span></li>
+            <li><span class="pill red">Support Initiator</span></li>
+            <li><span class="pill red">Anchor IGL</span></li>
+            <li><span class="pill red">Flex Star</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 22 — ML Integration
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">22 / ML</span>
+        <h2>ML Integration</h2>
+      </div>
+      <ul class="small">
+        <li>Inference / training in <code>worker/ml_pipeline.py</code> as an async batch job.</li>
+        <li>Admin clicks <em>Train K-means</em> → Flask API sends <code>{type: train_kmeans}</code> to SQS.</li>
+        <li>Worker loads features directly from PostgreSQL using aggregate SQL.</li>
+        <li>Pipeline inserts <code>player_features</code> snapshots and <code>ml_clusters</code> rows for the run.</li>
+        <li>Pipeline updates <code>players.ml_cluster_id</code>, <code>players.ml_archetype</code>, <code>players.ml_scored_at</code>.</li>
+        <li>Async design avoids slow ML work inside request handlers — UI stays responsive.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 23 — ML Data and Training
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">23 / ML</span>
+        <h2>ML Data &amp; Training</h2>
+      </div>
+      <ul class="small">
+        <li><strong>Source.</strong> Recent per-map player stat lines scraped from VLR.gg.</li>
+        <li><strong>Features.</strong>
+          <em>Combat</em> (ACS, rating, ADR, kills/round) ·
+          <em>Survivability</em> (KAST, deaths/round) ·
+          <em>Entry impact</em> (FK / FD) ·
+          <em>Role / agent flexibility</em>.
+        </li>
+        <li><strong>Filter.</strong> Players must have ≥ <code>min_matches</code> maps to avoid unstable clusters.</li>
+        <li><strong>Preprocessing.</strong> Missing values filled with column means; features standardized before K-means.</li>
+        <li><strong>Storage.</strong> No serialized model file — centroids and labels are stored in <code>ml_clusters</code> JSONB.</li>
+        <li><strong>Limitation.</strong> Cluster quality depends on the amount of scraped match history available in RDS.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 24 — ML Performance
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">24 / ML</span>
+        <h2>ML Performance</h2>
+      </div>
+      <ul class="small">
+        <li><strong>Metrics.</strong> <code>silhouette_score</code> when sklearn is available and enough samples exist.</li>
+        <li><strong>Latency.</strong> Seconds for class-demo datasets; longer with many players, but suitable as batch work.</li>
+        <li><strong>Interpretability.</strong> Centroid templates label clusters by high / low feature patterns rather than opaque numbers.</li>
+        <li><strong>Limitations.</strong> No supervised ground truth; labels are heuristic and should be validated by domain review.</li>
+        <li><strong>Failure modes.</strong> Too few player rows · VLR field changes · unbalanced clusters · rate-limited collection.</li>
+        <li><strong>Future work.</strong> Compare <code>k = 2..8</code>, add PCA visualization, persist scaler / model metadata, evaluate cluster stability.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 25 — Section: API
+         ============================================================ -->
+    <section class="divider">
+      <div class="eyebrow">Section · 04</div>
+      <h1>API</h1>
+      <p class="sub">JWT-protected REST API over PostgreSQL and SQS.</p>
+    </section>
+
+    <!-- ============================================================
+         Slide 26 — API Summary
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">26 / API</span>
+        <h2>API Summary</h2>
+      </div>
+      <ul class="small">
+        <li><strong>Type.</strong> REST API returning JSON.</li>
+        <li><strong>Framework.</strong> Flask with Flask-SQLAlchemy / SQLAlchemy models.</li>
+        <li><strong>Format.</strong> Same-origin calls from frontend; browser <code>fetch()</code> consumes JSON responses.</li>
+        <li><strong>Resources.</strong> teams · players · matches · clusters · admin sync / train jobs.</li>
+        <li><strong>Versioning.</strong> Unversioned <code>/api/*</code> paths for the course-project MVP.</li>
+        <li><strong>Behavior.</strong> Read endpoints query RDS; admin endpoints enqueue SQS tasks.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 27 — API Security and Access
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">27 / API</span>
+        <h2>API Security &amp; Access</h2>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <h4>Auth flow</h4>
+          <ul class="small">
+            <li><strong>Authentication.</strong> <code>/auth/login</code> validates credentials and returns a signed JWT.</li>
+            <li><strong>Authorization.</strong> Admin routes use <code>@token_required</code> + <code>current_user.role == admin</code>.</li>
+            <li><strong>Verification.</strong> <code>jwt.decode</code> with <code>SECRET_KEY</code>, then user lookup in PostgreSQL.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Endpoints by role</h4>
+          <p class="xsmall" style="margin:0 0 6px;"><span class="pill green">Public</span> matches · teams · players · clusters</p>
+          <p class="xsmall" style="margin:0;"><span class="pill red">Admin</span> <code>POST /api/admin/sync</code> · <code>POST /api/admin/train</code></p>
+          <hr/>
+          <p class="xsmall muted" style="margin:0;">
+            <strong>Production:</strong> rotate leaked demo secrets, remove hardcoded fallback DB URL,
+            use EC2 IAM role instead of static keys.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 28 — API Endpoints
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">28 / API</span>
+        <h2>API Endpoints</h2>
+      </div>
+      <div class="api-list">
+        <span class="method GET">GET</span>
+        <span class="path">/status<span class="desc">Health check; returns API and DB status.</span></span>
+
+        <span class="method POST">POST</span>
+        <span class="path">/auth/login<span class="desc">Body: username / password; returns JWT and role.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/matches<span class="desc">List recent matches; optional team_id / status / limit / offset.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/matches/&lt;id&gt;<span class="desc">Full match detail with maps, rounds, and player stats.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/teams<span class="desc">Team listing with search / region filters.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/teams/&lt;id&gt;<span class="desc">Team detail, roster, and recent matches.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/players/&lt;id&gt;<span class="desc">Player profile, career snapshot, agents, recent map stats.</span></span>
+
+        <span class="method GET">GET</span>
+        <span class="path">/api/clusters<span class="desc">Latest ML run clusters, centroids, and example players.</span></span>
+
+        <span class="method POST">POST</span>
+        <span class="path">/api/admin/sync<span class="desc"><span class="pill red">admin</span> Enqueue <code>sync_recent_matches</code> task.</span></span>
+
+        <span class="method POST">POST</span>
+        <span class="path">/api/admin/train<span class="desc"><span class="pill red">admin</span> Enqueue <code>train_kmeans</code> task.</span></span>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 29 — Section: In Conclusion
+         ============================================================ -->
+    <section class="divider">
+      <div class="eyebrow">Section · 05</div>
+      <h1>In Conclusion…</h1>
+      <p class="sub">What was built, what works, and what remains.</p>
+    </section>
+
+    <!-- ============================================================
+         Slide 30 — Anything Else
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">30 / Wrap</span>
+        <h2>Anything Else</h2>
+      </div>
+      <ul class="small">
+        <li><strong>Hybrid storage.</strong> The DB stores both normalized query-friendly rows <em>and</em> raw JSONB payloads for audit / debug.</li>
+        <li><strong>Idempotent ingestion.</strong> External IDs from VLR (<code>team_id</code>, <code>player_id</code>, <code>match_id</code>, <code>game_id</code>) are primary / unique keys.</li>
+        <li><strong>Domain-specific labeling.</strong> Archetypes are assigned by centroid templates over esports-specific features.</li>
+        <li><strong>Engineering tradeoff.</strong> API uses Python 3.11 container; worker uses Python 3.13 for <code>vlrdevapi</code> compatibility.</li>
+        <li><strong>Course fit.</strong> Combines cloud infrastructure, async queues, database design, backend APIs, frontend UI, and ML pipeline.</li>
+      </ul>
+    </section>
+
+    <!-- ============================================================
+         Slide 31 — Outcomes and Results
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">31 / Wrap</span>
+        <h2>Outcomes &amp; Results</h2>
+      </div>
+      <div class="grid-2 lop">
+        <div>
+          <ul class="small">
+            <li><span class="pill green">Done</span> RDS schema initialized — 10 tables &amp; admin user seeded.</li>
+            <li><span class="pill green">Done</span> API and worker code paths implemented; runnable locally with env vars.</li>
+            <li><span class="pill green">Done</span> VLR scraper produces detailed sample match JSON and player feature CSV / JSON artifacts.</li>
+            <li><span class="pill green">Done</span> Frontend renders core dashboard views and calls API endpoints same-origin.</li>
+            <li><span class="pill green">Done</span> K-means pipeline end-to-end — SQL feature aggregation → persisted archetype labels.</li>
+            <li><span class="pill yellow">Next</span> Final full <em>Sync recent matches</em> verification and EC2 production run.</li>
+          </ul>
+        </div>
+        <div class="card hot">
+          <h4>Repo deliverables</h4>
+          <ul class="small">
+            <li><code>api/</code></li>
+            <li><code>worker/</code></li>
+            <li><code>shared/</code></li>
+            <li><code>frontend/</code></li>
+            <li><code>db/schema.sql</code></li>
+            <li><code>docker/</code></li>
+            <li><code>docs/DEPLOY.md</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         Slide 32 — Incomplete and Descoped Features
+         ============================================================ -->
+    <section>
+      <div class="slide-title">
+        <span class="kicker">32 / Wrap</span>
+        <h2>Incomplete &amp; Descoped Features</h2>
+      </div>
+      <ul class="small">
+        <li><strong>CS2 / multi-game support.</strong> Originally considered, descoped to focus on a reliable Valorant pipeline first.</li>
+        <li><strong>Production EC2 deployment.</strong> Docker artifacts and docs exist; final always-on EC2 run remains.</li>
+        <li><strong>Scheduled sync.</strong> Admin-triggered sync implemented; cron / EventBridge automation is planned.</li>
+        <li><strong>Advanced ML evaluation.</strong> Silhouette metric exists; elbow search, PCA plot, cluster stability reports are future work.</li>
+        <li><strong>Frontend visuals.</strong> Core SPA exists; richer charts / radar plots can be added later.</li>
+        <li><strong>Security cleanup.</strong> Rotate exposed secrets, remove fallback credentials, migrate to IAM role before public deployment.</li>
+      </ul>
+      <p style="text-align:center;margin-top:34px;color:var(--val-red);font-weight:800;letter-spacing:0.4em;font-size:0.7em;">
+        — END · Q &amp; A —
+      </p>
+    </section>
+
+  </div>
+</div>
+
+<!-- ============================================================
+     reveal.js + Mermaid bootstrap
+     ============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/notes/notes.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+
+<script>
+  // ----- Mermaid theme matching the Valorant red ----------------
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: {
+      // edges + arrows
+      lineColor:        '#ff4655',
+      // node fills
+      primaryColor:     '#171b24',
+      primaryTextColor: '#ece8e1',
+      primaryBorderColor:'#ff4655',
+      // secondary / cluster
+      clusterBkg:       '#0f1218',
+      clusterBorder:    '#2a3140',
+      // generic
+      mainBkg:          '#171b24',
+      secondaryColor:   '#1e2430',
+      tertiaryColor:    '#1e2430',
+      fontFamily:       '"Segoe UI", -apple-system, sans-serif',
+      fontSize:         '15px',
+      nodeBorder:       '#ff4655',
+      edgeLabelBackground: '#0f1218',
+    },
+    flowchart: { curve: 'basis', htmlLabels: true, padding: 8 },
+    securityLevel: 'loose',
+  });
+
+  // Convert <div class="mermaid"> bodies into rendered SVG.
+  // We do this BEFORE Reveal.initialize so layout is correct.
+  // Use a tiny shim because reveal clones slides for backgrounds.
+  function renderMermaid() {
+    document.querySelectorAll('.mermaid').forEach((el, i) => {
+      if (el.dataset.processed) return;
+      const src = el.textContent.trim();
+      const id = 'm' + i + '_' + Date.now();
+      mermaid.render(id, src).then(({ svg }) => {
+        el.innerHTML = svg;
+        el.dataset.processed = '1';
+      }).catch(err => {
+        el.innerHTML = '<pre style="color:#ff8a93">' + err.message + '</pre>';
+      });
+    });
+  }
+  renderMermaid();
+
+  // ----- Reveal --------------------------------------------------
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    width:  1280,
+    height: 760,
+    margin: 0.04,
+    transition: 'slide',
+    transitionSpeed: 'fast',
+    backgroundTransition: 'fade',
+    controls: true,
+    progress: true,
+    plugins: [ RevealHighlight, RevealNotes ],
+  });
+
+  // Re-render mermaid after navigation (in case anything was cloned)
+  Reveal.on('slidechanged', renderMermaid);
+</script>
+
+</body>
+</html>
